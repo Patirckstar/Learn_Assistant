@@ -1,3 +1,5 @@
+"""课程章节模型"""
+
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, func
 from app.core.database import Base
 
@@ -11,4 +13,5 @@ class Chapter(Base):
     level = Column(Integer, nullable=False, default=1)
     sort_order = Column(Integer, default=0)
     content = Column(Text, nullable=True)
+    source_doc_id = Column(Integer, ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=func.now())

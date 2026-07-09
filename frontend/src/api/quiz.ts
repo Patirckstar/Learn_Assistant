@@ -8,6 +8,7 @@ export interface QuestionOption {
 export interface QuestionOut {
   id: number
   chapter_id: number | null
+  parent_chapter_id: number | null
   type: string
   difficulty: string
   stem: string
@@ -26,6 +27,7 @@ export interface ExamDetail {
   question_id: number
   stem: string
   type: string
+  difficulty: string
   options: QuestionOption[]
   user_answer: string | null
   correct_answer: string
@@ -36,10 +38,13 @@ export interface ExamDetail {
 
 export interface ExamResult {
   exam_id: number
+  paper_id: number
+  paper_title: string
   total_score: number
   score: number
   time_limit: number
   time_used: number | null
+  feedback: string
   details: ExamDetail[]
   created_at: string
 }
@@ -55,35 +60,52 @@ export interface ExamHistory {
   created_at: string
 }
 
-export function generateQuestions(chapterId: number, count = 5, difficulty = 'medium') {
-  return request.post<QuestionOut[]>('/api/quiz/generate', { chapter_id: chapterId, count, difficulty })
+export interface Paper {
+  id: number
+  chapter_id: number
+  chapter_title: string
+  title: string
+  description: string
+  question_count: number
+  time_limit: number
+  is_ready: boolean
+  created_at: string
+  updated_at: string
 }
 
-export function getQuestions(chapterId: number) {
-  return request.get<QuestionOut[]>(`/api/quiz/questions/${chapterId}`)
+export interface PaperExamData {
+  paper_id: number
+  paper_title: string
+  time_limit: number
+  question_count: number
+  questions: QuestionOut[]
 }
 
-export function getExamQuestions(chapterId: number, count = 5, timeLimit = 0) {
-  return request.get<{ time_limit: number; questions: QuestionOut[] }>(`/api/quiz/questions/${chapterId}/exam`, {
-    params: { count, time_limit: timeLimit },
-  })
+export function getPapers() {
+  return request.get<Paper[]>('/api/quiz/papers')
 }
 
-export function submitExam(
-  chapterId: number,
-  questionIds: number[],
+export function getPaper(paperId: number) {
+  return request.get<Paper>(`/api/quiz/papers/${paperId}`)
+}
+
+export function refreshPapers() {
+  return fetch('/api/quiz/papers/refresh', { method: 'POST' })
+}
+
+export function getPaperExamQuestions(paperId: number) {
+  return request.get<PaperExamData>(`/api/quiz/papers/${paperId}/exam`)
+}
+
+export function submitPaperExam(
+  paperId: number,
   answers: ExamAnswer[],
-  timeLimit = 0,
   timeUsed?: number,
   userId = 1,
 ) {
-  return request.post<ExamResult>('/api/quiz/submit', {
-    chapter_id: chapterId,
-    question_ids: questionIds,
-    answers,
-    time_limit: timeLimit,
-    time_used: timeUsed,
-  }, { params: { user_id: userId } })
+  return request.post<ExamResult>(`/api/quiz/papers/${paperId}/submit`, answers, {
+    params: { user_id: userId, time_used: timeUsed },
+  })
 }
 
 export function getExams(userId = 1, chapterId?: number) {

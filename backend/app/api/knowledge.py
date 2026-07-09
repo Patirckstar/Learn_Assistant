@@ -1,6 +1,6 @@
 """知识库 API 路由"""
 
-from fastapi import APIRouter, BackgroundTasks, Depends, UploadFile, File, Query, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Query, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -9,6 +9,7 @@ from app.core.llm import get_llm
 from app.schemas.knowledge import DocumentOut, KnowledgeAskOut, KnowledgeSearchOut, SearchResult
 from app.services import knowledge_svc
 from app.utils.embeddings import search_knowledge
+from app.utils.task_queue import task_queue
 
 router = APIRouter(prefix="/api/knowledge", tags=["知识库"])
 
@@ -16,7 +17,6 @@ router = APIRouter(prefix="/api/knowledge", tags=["知识库"])
 @router.post("/upload", response_model=DocumentOut)
 def upload_document(
     file: UploadFile = File(...),
-    bg_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
 ):
     """上传文档（支持 pdf / docx / txt / md / ppt / json）"""
@@ -41,11 +41,21 @@ def upload_document(
 
     doc, text = knowledge_svc.upload_document(db, file)
 
-    # 后台异步向量化，不阻塞上传响应
-    if bg_tasks:
-        bg_tasks.add_task(knowledge_svc.vectorize_document, doc.id, doc.filename, text)
+    # 使用任务队列处理向量化，不阻塞上传响应
+    task_queue.enqueue("vectorize", {
+        "doc_id": doc.id,
+        "filename": doc.filename,
+        "file_path": doc.file_path,
+    })
 
     return doc
+
+
+@router.get("/tasks/{task_id}/status")
+def get_task_status(task_id: str):
+    """查询任务状态"""
+    status = task_queue.get_status(task_id)
+    return {"task_id": task_id, "status": status}
 
 
 @router.get("/documents", response_model=list[DocumentOut])

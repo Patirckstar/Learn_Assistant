@@ -7,6 +7,7 @@ class Question(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     chapter_id = Column(Integer, ForeignKey("chapters.id", ondelete="SET NULL"), nullable=True)
+    parent_chapter_id = Column(Integer, ForeignKey("chapters.id", ondelete="SET NULL"), nullable=True)
     type = Column(String(20), nullable=False)
     difficulty = Column(String(10), default="medium")
     stem = Column(Text, nullable=False)

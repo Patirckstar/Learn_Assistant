@@ -5,9 +5,14 @@
         <h2>课程学习</h2>
         <div class="subtitle">选择章节开始学习</div>
       </div>
-      <el-button type="primary" :loading="courseStore.loading" @click="handleGenerate" class="generate-btn">
+      <el-button
+        type="primary"
+        :loading="courseStore.loading || courseStore.refreshStreaming"
+        @click="handleRefresh"
+        class="generate-btn"
+      >
         <el-icon style="margin-right:4px"><MagicStick /></el-icon>
-        生成课程大纲
+        刷新课程大纲
       </el-button>
     </div>
 
@@ -20,6 +25,15 @@
     <div v-else class="course-layout">
       <!-- 左侧大纲 -->
       <div class="outline-panel">
+        <div v-if="courseStore.refreshStreaming && courseStore.refreshProgress" class="progress-container">
+          <div class="progress-bar-wrapper">
+            <div
+              class="progress-bar"
+              :style="{ width: `${courseStore.refreshProgress.percent}%` }"
+            />
+          </div>
+          <span class="progress-text">{{ courseStore.refreshProgress.message }}</span>
+        </div>
         <div class="outline-header">课程目录</div>
         <div
           v-for="ch in courseStore.outlineTree"
@@ -132,12 +146,12 @@ async function selectChapter(id: number) {
   }
 }
 
-async function handleGenerate() {
+async function handleRefresh() {
   try {
-    await courseStore.generateOutline()
+    await courseStore.refreshOutlineWithProgress()
     await dashboardStore.fetchDashboard()
   } catch (e: any) {
-    ElMessage.error(e.message || '生成失败')
+    ElMessage.error(e.message || '刷新失败')
   }
 }
 
@@ -329,5 +343,31 @@ onActivated(async () => {
 
 .generate-btn {
   flex-shrink: 0;
+}
+
+.progress-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.progress-bar-wrapper {
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 12px;
+  color: var(--color-text-secondary);
 }
 </style>

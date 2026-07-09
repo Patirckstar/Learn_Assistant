@@ -18,8 +18,71 @@ export interface ChapterTreeNode {
   children: ChapterTreeNode[]
 }
 
-export function generateOutline() {
-  return request.post<ChapterTreeNode[]>('/api/course/outline/generate')
+export interface RefreshProgress {
+  current: number
+  total: number
+  percent: number
+  message: string
+  result?: ChapterTreeNode[]
+  error?: string
+}
+
+export function refreshOutline() {
+  return request.post<ChapterTreeNode[]>('/api/course/outline/refresh')
+}
+
+export async function refreshOutlineStream(onProgress: (progress: RefreshProgress) => void): Promise<ChapterTreeNode[] | null> {
+  const response = await fetch('http://127.0.0.1:8000/api/course/outline/refresh/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || '请求失败')
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new Error('无法读取响应')
+  }
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+
+    const lines = buffer.split('\n\n')
+    buffer = lines.pop() || ''
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+
+      const jsonStr = line.slice(6)
+      try {
+        const progress: RefreshProgress = JSON.parse(jsonStr)
+        onProgress(progress)
+
+        if (progress.percent === 100) {
+          return progress.result || null
+        }
+
+        if (progress.error) {
+          throw new Error(progress.error)
+        }
+      } catch (e: any) {
+        throw new Error(e.message || '解析进度失败')
+      }
+    }
+  }
+
+  return null
 }
 
 export function getOutline() {

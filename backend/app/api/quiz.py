@@ -1,83 +1,86 @@
-"""测验 API 路由"""
+"""测验 API 路由 — 试卷管理、考试"""
 
 import json
+import time
+import threading
+from queue import Queue
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
-from app.schemas.quiz import QuestionGenerateIn, ExamSubmitIn
+from app.core.database import get_db, SessionLocal
 from app.services import quiz_svc
 
 router = APIRouter(prefix="/api/quiz", tags=["测验"])
 
 
-def _q_to_out(q):
-    """将 Question ORM 转为输出格式"""
-    options = json.loads(q.options) if isinstance(q.options, str) else q.options
-    if isinstance(options, dict):
-        options_list = [{"key": k, "text": v} for k, v in options.items()]
-    else:
-        options_list = options
-    return {
-        "id": q.id,
-        "chapter_id": q.chapter_id,
-        "type": q.type,
-        "difficulty": q.difficulty,
-        "stem": q.stem,
-        "options": options_list,
-        "answer": q.answer,
-        "explanation": q.explanation,
-        "created_at": q.created_at.isoformat() if q.created_at else "",
-    }
+@router.get("/papers")
+def list_papers(db: Session = Depends(get_db)):
+    """获取试卷列表"""
+    return quiz_svc.get_papers(db)
 
 
-@router.post("/generate")
-def generate(body: QuestionGenerateIn, db: Session = Depends(get_db)):
-    """调用 AI 为章节生成题目"""
+@router.get("/papers/{paper_id}")
+def get_paper(paper_id: int, db: Session = Depends(get_db)):
+    """获取试卷详情"""
+    result = quiz_svc.get_paper(db, paper_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="试卷不存在")
+    return result
+
+
+@router.post("/papers/refresh")
+def refresh_papers_stream():
+    """刷新所有试卷（流式返回进度）"""
+    q = Queue()
+    
+    def progress_callback(current, total, message):
+        progress = int(current / total * 100) if total > 0 else 0
+        q.put(f"data: {json.dumps({'current': current, 'total': total, 'progress': progress, 'message': message}, ensure_ascii=False)}\n\n")
+    
+    def worker():
+        local_db = None
+        try:
+            local_db = SessionLocal()
+            papers = quiz_svc.refresh_all_papers(local_db, progress_callback=progress_callback)
+            q.put(f"data: {json.dumps({'status': 'completed', 'paper_count': len(papers)}, ensure_ascii=False)}\n\n")
+        except Exception as e:
+            q.put(f"data: {json.dumps({'status': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n")
+        finally:
+            if local_db:
+                local_db.close()
+            q.put(None)
+    
+    threading.Thread(target=worker, daemon=True).start()
+    
+    def generate():
+        while True:
+            event = q.get()
+            if event is None:
+                break
+            yield event
+            time.sleep(0.1)
+    
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.get("/papers/{paper_id}/exam")
+def get_exam_questions(paper_id: int, db: Session = Depends(get_db)):
+    """获取试卷的考试题目（不含答案）"""
+    result = quiz_svc.get_exam_questions_for_paper(db, paper_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="试卷不存在或暂无题目")
+    return result
+
+
+@router.post("/papers/{paper_id}/submit")
+def submit_exam(paper_id: int, answers: list[dict], user_id: int = 1, time_used: int | None = None, db: Session = Depends(get_db)):
+    """提交试卷答案，批改并返回结果"""
     try:
-        questions = quiz_svc.generate_questions(db, body.chapter_id, body.count, body.difficulty)
+        result = quiz_svc.submit_exam_for_paper(db, user_id, paper_id, answers, time_used)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return [_q_to_out(q) for q in questions]
-
-
-@router.get("/questions/{chapter_id}")
-def list_questions(chapter_id: int, db: Session = Depends(get_db)):
-    """获取某章节的已有题目（含答案，用于管理端, 前端考试时不调用此接口）"""
-    questions = quiz_svc.get_questions(db, chapter_id)
-    return [_q_to_out(q) for q in questions]
-
-
-@router.get("/questions/{chapter_id}/exam")
-def get_exam_questions(chapter_id: int, count: int = 5, time_limit: int = 0, db: Session = Depends(get_db)):
-    """获取考试题目（不含答案），time_limit=秒数，0=不限时"""
-    questions = quiz_svc.get_questions(db, chapter_id)
-    if not questions:
-        raise HTTPException(status_code=404, detail="该章节暂无题目，请先生成")
-    selected = questions[:min(count, len(questions))]
-    return {
-        "time_limit": time_limit,
-        "questions": [
-            {k: v for k, v in _q_to_out(q).items() if k not in ("answer", "explanation")}
-            for q in selected
-        ],
-    }
-
-
-@router.post("/submit")
-def submit(body: ExamSubmitIn, user_id: int = 1, db: Session = Depends(get_db)):
-    """提交考试答案，批改并返回结果"""
-    # 验证时间限制
-    if body.time_limit > 0 and body.time_used is not None and body.time_used > body.time_limit:
-        raise HTTPException(status_code=400, detail=f"答题超时（限制 {body.time_limit}s，实际 {body.time_used}s）")
-
-    answers_dicts = [{"question_id": a.question_id, "user_answer": a.user_answer} for a in body.answers]
-    try:
-        result = quiz_svc.submit_exam(
-            db, user_id, body.chapter_id, body.question_ids, answers_dicts,
-            time_used=body.time_used, time_limit=body.time_limit,
-        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return result

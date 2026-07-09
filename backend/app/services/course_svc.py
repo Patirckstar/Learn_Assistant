@@ -1,96 +1,169 @@
-"""课程服务 — 大纲生成、学习内容、进度管理"""
+"""课程服务 — 大纲刷新、学习内容、进度管理"""
 
 import json
+import logging
 
 from sqlalchemy.orm import Session
 
 from app.core.llm import get_llm
 from app.models.chapter import Chapter
+from app.models.document import Document
 from app.models.progress import Progress
+from app.utils.file_parser import parse_file
+
+logger = logging.getLogger(__name__)
 
 
-# ====================== 大纲生成 ======================
+# ====================== 大纲刷新 ======================
 
 
-def generate_outline(db: Session) -> list[Chapter]:
-    """基于知识库内容，调用 LLM 生成课程大纲"""
+def refresh_outline(db: Session, progress_callback=None) -> list[Chapter]:
+    """
+    刷新课程大纲：
+    - 检测知识库中未制成课程的文档
+    - 每份文档生成一个独立课程（一章）
+    - 已有课程不动
+    
+    progress_callback: 进度回调函数，接收参数 (current, total, message)
+    """
     llm = get_llm()
+    documents = db.query(Document).order_by(Document.uploaded_at).all()
+    if not documents:
+        raise ValueError("知识库为空，请先上传文档")
 
-    # 从 ChromaDB 获取知识库概要
-    from app.utils.embeddings import get_vector_store
-    store = get_vector_store()
-    all_docs = store.get()
-    texts = all_docs.get("documents", [])
-    knowledge_summary = "\n".join(texts[:20]) if texts else "暂无知识库内容"
-    # 截断避免超出 token 限制
-    if len(knowledge_summary) > 8000:
-        knowledge_summary = knowledge_summary[:8000] + "..."
+    # 找出已处理过的文档 ID
+    processed_doc_ids = set()
+    existing_chapters = db.query(Chapter).filter(Chapter.source_doc_id.isnot(None)).all()
+    for ch in existing_chapters:
+        if ch.source_doc_id:
+            processed_doc_ids.add(ch.source_doc_id)
 
-    prompt = f"""你是一位课程设计专家。请根据以下知识库内容，生成一份层级清晰的课程大纲。
+    # 需要处理的新文档
+    new_docs = [doc for doc in documents if doc.id not in processed_doc_ids]
+    total = len(new_docs)
+    
+    if progress_callback:
+        progress_callback(0, total, "开始刷新课程大纲...")
+
+    # 找出最大 sort_order（新课程追加在后面）
+    max_order = db.query(Chapter.sort_order).order_by(Chapter.sort_order.desc()).first()
+    next_order = (max_order[0] + 1) if max_order and max_order[0] else 1
+
+    new_chapters = []
+    for index, doc in enumerate(new_docs):
+        current = index + 1
+        
+        if progress_callback:
+            progress_callback(current, total, f"正在处理文档: {doc.filename}")
+
+        logger.info("为新文档生成课程: id=%d, filename=%s", doc.id, doc.filename)
+
+        # 解析文档原文
+        try:
+            text = parse_file(doc.file_path)
+        except Exception as e:
+            logger.warning("解析文档失败: id=%d, error=%s", doc.id, e)
+            if progress_callback:
+                progress_callback(current, total, f"解析文档失败，跳过: {doc.filename}")
+            continue
+
+        if not text or not text.strip():
+            logger.warning("文档内容为空: id=%d", doc.id)
+            if progress_callback:
+                progress_callback(current, total, f"文档内容为空，跳过: {doc.filename}")
+            continue
+
+        # 截断文本到安全长度
+        doc_text = text[:20000] if len(text) > 20000 else text
+
+        if progress_callback:
+            progress_callback(current, total, f"正在生成课程内容...")
+
+        prompt = f"""你是一位课程讲师。请根据以下文档内容，生成一份完整的课程。
+
+文档标题：{doc.filename}
 
 要求：
-1. 大纲至少包含"章"和"节"两级
-2. 章的数量 3-8 章，每章下 2-5 节
-3. 章节标题简洁明了
-4. 返回 JSON 数组格式，不要包含 markdown 代码块标记
+1. 生成一个章（一级标题）和 3-6 个小节（二级标题）
+2. 章标题以文档主题命名
+3. 每个小节要包含详细的学习内容（使用 markdown 格式）
+4. 内容要系统、详尽，包含核心知识点、概念解释、代码示例等
+5. 每小节内容 800-2000 字
+6. 语言简洁清晰，适合自学
 
-知识库内容：
-{knowledge_summary}
+文档内容：
+{doc_text}
 
-返回格式（严格 JSON 数组，不要加其他文字）：
-[
-  {{
-    "title": "第一章标题",
-    "children": [
-      {{"title": "第一节标题"}},
-      {{"title": "第二节标题"}}
-    ]
-  }}
-]"""
+返回严格的 JSON 格式（不要包含 markdown 代码块标记）：
+{{
+  "title": "章标题",
+  "sections": [
+    {{
+      "title": "小节标题",
+      "content": "小节详细学习内容（markdown 格式）"
+    }}
+  ]
+}}"""
 
-    response = llm.invoke(prompt)
-    raw = response.content.strip()
+        response = llm.invoke(prompt)
+        raw = response.content.strip()
 
-    # 清理可能的 markdown 代码块标记
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[-1]
-        raw = raw.rsplit("\n", 1)[0]
-        if raw.endswith("```"):
-            raw = raw[:-3]
-    raw = raw.strip()
+        # 清理可能的 markdown 代码块标记
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1]
+            raw = raw.rsplit("\n", 1)[0]
+            if raw.endswith("```"):
+                raw = raw[:-3]
+        raw = raw.strip()
 
-    try:
-        outline_data = json.loads(raw)
-    except json.JSONDecodeError:
-        raise ValueError(f"LLM 返回格式错误，无法解析: {raw[:200]}")
+        try:
+            course_data = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("LLM 返回格式错误，跳过: %s", raw[:200])
+            if progress_callback:
+                progress_callback(current, total, f"生成格式错误，跳过: {doc.filename}")
+            continue
 
-    # 清空旧大纲并写入新数据
-    db.query(Chapter).delete()
-    db.commit()
+        chapter_title = course_data.get("title", doc.filename)
+        sections = course_data.get("sections", [])
 
-    chapters = []
-    for order, chapter_item in enumerate(outline_data, 1):
+        # 创建章
         parent = Chapter(
-            title=chapter_item["title"],
+            title=chapter_title,
             level=1,
-            sort_order=order,
+            sort_order=next_order,
+            source_doc_id=doc.id,
         )
         db.add(parent)
         db.flush()
 
-        children = chapter_item.get("children", [])
-        for sub_order, child_item in enumerate(children, 1):
+        # 创建节（含详细内容）
+        for sub_order, sec in enumerate(sections, 1):
             child = Chapter(
                 parent_id=parent.id,
-                title=child_item["title"],
+                title=sec.get("title", f"第{sub_order}节"),
+                content=sec.get("content", ""),
                 level=2,
                 sort_order=sub_order,
+                source_doc_id=doc.id,
             )
             db.add(child)
 
+        next_order += 1
+        new_chapters.append(parent)
+
+        if progress_callback:
+            progress_callback(current, total, f"课程生成完成: {chapter_title}")
+
     db.commit()
-    chapters = db.query(Chapter).order_by(Chapter.sort_order).all()
-    return chapters
+    
+    if progress_callback:
+        progress_callback(total, total, f"大纲刷新完成，新增 {len(new_chapters)} 个课程")
+
+    logger.info("大纲刷新完成，新增 %d 个课程", len(new_chapters))
+
+    result = db.query(Chapter).order_by(Chapter.level, Chapter.sort_order).all()
+    return result
 
 
 # ====================== 大纲查询 ======================
@@ -114,11 +187,11 @@ def generate_chapter_content(db: Session, chapter_id: int) -> str:
     # 获取知识库相关内容
     from app.utils.embeddings import get_vector_store
     store = get_vector_store()
-    results = store.similarity_search(chapter.title, k=10)
+    results = store.similarity_search(chapter.title, k=30)
     related_texts = [doc.page_content for doc in results]
     knowledge = "\n".join(related_texts) if related_texts else "暂无相关知识"
-    if len(knowledge) > 6000:
-        knowledge = knowledge[:6000] + "..."
+    if len(knowledge) > 18000:
+        knowledge = knowledge[:18000] + "..."
 
     prompt = f"""你是一位课程讲师。请根据以下知识库内容，为课程章节「{chapter.title}」生成详细的学习内容。
 

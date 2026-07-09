@@ -1,6 +1,8 @@
 """课程 API 路由"""
 
+import json
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -10,15 +12,78 @@ from app.services import course_svc
 router = APIRouter(prefix="/api/course", tags=["课程"])
 
 
-@router.post("/outline/generate")
-def generate_outline(db: Session = Depends(get_db)):
-    """基于知识库生成课程大纲"""
+def _progress_event(current: int, total: int, message: str):
+    """生成 SSE 进度事件"""
+    percent = int(current / total * 100) if total > 0 else 0
+    data = {
+        "current": current,
+        "total": total,
+        "percent": percent,
+        "message": message,
+    }
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@router.post("/outline/refresh")
+def refresh_outline(db: Session = Depends(get_db)):
+    """刷新课程大纲：为知识库中新增的文档生成课程，已有课程不动"""
     try:
-        chapters = course_svc.generate_outline(db)
+        chapters = course_svc.refresh_outline(db)
     except ValueError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
     return _build_tree(chapters)
+
+
+from queue import Queue
+import threading
+
+@router.post("/outline/refresh/stream")
+def refresh_outline_stream(db: Session = Depends(get_db)):
+    """刷新课程大纲（带进度推送）"""
+    try:
+        q = Queue()
+
+        def progress_callback(current: int, total: int, message: str):
+            q.put(_progress_event(current, total, message))
+
+        def worker():
+            try:
+                chapters = course_svc.refresh_outline(db, progress_callback)
+                q.put(f"data: {json.dumps({
+                    'current': 100,
+                    'total': 100,
+                    'percent': 100,
+                    'message': '完成',
+                    'result': _build_tree(chapters),
+                }, ensure_ascii=False)}\n\n")
+            except Exception as e:
+                q.put(f"data: {json.dumps({
+                    'current': 0,
+                    'total': 0,
+                    'percent': 0,
+                    'message': f'错误: {str(e)}',
+                    'error': str(e),
+                }, ensure_ascii=False)}\n\n")
+            finally:
+                q.put(None)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        def generate():
+            while True:
+                event = q.get()
+                if event is None:
+                    break
+                yield event
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/outline")
