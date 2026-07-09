@@ -1,0 +1,10 @@
+# ========== 项目自定义 ==========
+design-taste-frontend/*
+.trae/*
+
+# ========== 系统文件（可能出现在任何层级）==========
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~

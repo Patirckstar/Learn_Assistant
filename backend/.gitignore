@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/uploads/*
+data/chroma/*
+data/faces/*
+!data/uploads/.gitkeep
+!data/chroma/.gitkeep
+!data/faces/.gitkeep
+.idea/
