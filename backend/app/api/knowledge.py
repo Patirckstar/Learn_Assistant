@@ -3,8 +3,10 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, UploadFile, File, Query, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
-from app.schemas.knowledge import DocumentOut, KnowledgeSearchOut, SearchResult
+from app.core.llm import get_llm
+from app.schemas.knowledge import DocumentOut, KnowledgeAskOut, KnowledgeSearchOut, SearchResult
 from app.services import knowledge_svc
 from app.utils.embeddings import search_knowledge
 
@@ -24,6 +26,17 @@ def upload_document(
         raise HTTPException(
             status_code=400,
             detail=f"不支持的文件格式: {ext}，支持的格式: {', '.join(allowed_types)}",
+        )
+
+    # 检查文件大小
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    file.file.seek(0, 2)  # 移到末尾
+    file_size = file.file.tell()
+    file.file.seek(0)  # 重置到开头
+    if file_size > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件过大（{file_size / 1024 / 1024:.1f}MB），最大允许 {settings.MAX_UPLOAD_SIZE_MB}MB",
         )
 
     doc, text = knowledge_svc.upload_document(db, file)
@@ -52,9 +65,53 @@ def delete_document(doc_id: int, db: Session = Depends(get_db)):
 
 @router.get("/search", response_model=KnowledgeSearchOut)
 def search(query: str = Query(..., description="搜索关键词"), k: int = Query(5, ge=1, le=20)):
-    """语义搜索知识库"""
+    """语义搜索知识库，返回匹配的文档片段"""
     results = search_knowledge(query, k=k)
     return KnowledgeSearchOut(
         query=query,
         results=[SearchResult(**r) for r in results],
+    )
+
+
+@router.get("/ask", response_model=KnowledgeAskOut)
+def ask(query: str = Query(..., description="提问内容"), k: int = Query(5, ge=1, le=10)):
+    """基于知识库的 AI 问答：检索相关内容后由 LLM 总结回答"""
+    source_results = search_knowledge(query, k=k)
+    sources = [SearchResult(**r) for r in source_results]
+
+    if not sources:
+        return KnowledgeAskOut(
+            query=query,
+            answer="知识库中没有找到与您问题相关的内容，请先上传相关文档。",
+            sources=[],
+        )
+
+    # 拼接上下文
+    context_parts = []
+    for i, s in enumerate(sources, 1):
+        context_parts.append(f"[来源{i}] {s.filename}:\n{s.content}")
+
+    context = "\n\n".join(context_parts)
+
+    prompt = f"""你是一个学习助手。请根据以下知识库内容回答用户的问题。
+如果知识库内容不足以回答问题，请如实告知。
+
+知识库内容：
+{context}
+
+用户问题：{query}
+
+请用中文回答，简洁清晰，引用时标注来源编号如 [来源1]。"""
+
+    try:
+        llm = get_llm()
+        response = llm.invoke(prompt)
+        answer = response.content if hasattr(response, "content") else str(response)
+    except Exception:
+        answer = "AI 回答生成失败，请确保 Ollama 服务正常运行。以下是检索到的相关内容（仅供参考）：\n\n" + context
+
+    return KnowledgeAskOut(
+        query=query,
+        answer=answer,
+        sources=sources,
     )

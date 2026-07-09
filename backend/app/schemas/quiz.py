@@ -11,6 +11,7 @@ class QuestionGenerateIn(BaseModel):
     chapter_id: int = Field(..., description="章节 ID")
     count: int = Field(default=5, ge=1, le=20, description="题目数量")
     difficulty: str = Field(default="medium", description="难度：easy / medium / hard / mixed")
+    time_limit: int = Field(default=0, ge=0, le=3600, description="时间限制（秒），0=不限时")
 
 
 class QuestionOption(BaseModel):
@@ -52,7 +53,8 @@ class ExamSubmitIn(BaseModel):
     chapter_id: int
     question_ids: list[int]
     answers: list[ExamAnswerIn]
-    time_used: int | None = None  # 秒
+    time_limit: int = Field(default=0, ge=0, le=3600, description="时间限制（秒），0=不限时")
+    time_used: int | None = Field(default=None, description="实际用时（秒）")
 
 
 class ExamDetailOut(BaseModel):
@@ -76,6 +78,7 @@ class ExamResultOut(BaseModel):
     exam_id: int
     total_score: float
     score: float
+    time_limit: int = 0
     time_used: int | None = None
     details: list[ExamDetailOut]
     created_at: str
@@ -88,6 +91,7 @@ class ExamHistoryOut(BaseModel):
     chapter_title: str | None = None
     total_score: float
     score: float
+    time_limit: int = 0
     time_used: int | None = None
     created_at: str
 

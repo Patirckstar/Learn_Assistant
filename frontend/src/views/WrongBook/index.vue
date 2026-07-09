@@ -179,7 +179,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted } from 'vue'
+import { ref, computed, reactive, onActivated } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useWrongBookStore } from '@/stores/wrongbook'
 import type { PracticeQuestion } from '@/api/wrongbook'
@@ -262,8 +262,10 @@ function formatDate(dateStr: string) {
   })
 }
 
-onMounted(() => {
-  loadList()
+onActivated(() => {
+  if (!wbStore.wrongQuestions.length) {
+    loadList()
+  }
 })
 </script>
 

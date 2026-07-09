@@ -7,9 +7,96 @@
       </div>
     </div>
 
+    <!-- 搜索 & AI 问答 -->
+    <el-card class="search-card">
+      <el-tabs v-model="searchMode" class="search-tabs">
+        <el-tab-pane label="语义搜索" name="search" />
+        <el-tab-pane label="AI 问答" name="ask" />
+      </el-tabs>
+
+      <div class="search-bar">
+        <el-input
+          v-model="searchQuery"
+          :placeholder="searchMode === 'ask' ? '向 AI 提问，如：Qt 中信号和槽的机制是什么？' : '搜索知识库，如：信号槽怎么用'"
+          clearable
+          size="large"
+          @keyup.enter="searchMode === 'ask' ? handleAsk() : handleSearch()"
+        >
+          <template #prefix>
+            <el-icon><Search /></el-icon>
+          </template>
+        </el-input>
+        <el-button
+          v-if="searchMode === 'search'"
+          type="primary"
+          size="large"
+          @click="handleSearch"
+          :loading="searching"
+        >
+          搜索
+        </el-button>
+        <el-button
+          v-else
+          type="primary"
+          size="large"
+          @click="handleAsk"
+          :loading="knowledgeStore.aiLoading"
+        >
+          提问
+        </el-button>
+      </div>
+
+      <!-- 搜索结果 -->
+      <div v-if="searchMode === 'search' && uniqueSearchResults.length" class="search-results">
+        <div class="results-header">
+          找到 {{ uniqueSearchResults.length }} 条相关结果（来自 {{ searchFileCount }} 个文件）
+        </div>
+        <div
+          v-for="(item, idx) in uniqueSearchResults"
+          :key="idx"
+          class="result-item"
+        >
+          <div class="result-meta">
+            <el-tag size="small" type="info" effect="plain">{{ item.filename }}</el-tag>
+            <span class="result-score">相关度 {{ (item.score * 100).toFixed(0) }}%</span>
+          </div>
+          <div class="result-content">{{ item.content }}</div>
+        </div>
+      </div>
+
+      <!-- AI 回答 -->
+      <div v-if="searchMode === 'ask' && knowledgeStore.aiAnswer" class="ai-answer">
+        <div class="answer-header">AI 回答</div>
+        <div class="answer-content">{{ knowledgeStore.aiAnswer }}</div>
+        <div v-if="uniqueAiSources.length" class="answer-sources">
+          <div class="sources-title">参考来源（{{ uniqueAiSources.length }} 个文件）：</div>
+          <div v-for="(s, idx) in uniqueAiSources" :key="idx" class="source-item">
+            <el-tag size="small" type="info" effect="plain">[来源{{ idx + 1 }}] {{ s.filename }}</el-tag>
+            <span class="source-score">相关度 {{ (s.score * 100).toFixed(0) }}%</span>
+          </div>
+        </div>
+      </div>
+    </el-card>
+
     <!-- 上传区域 -->
     <el-card class="upload-card">
+      <div v-if="knowledgeStore.uploadingProgress" class="upload-progress-wrap">
+        <div class="progress-info">
+          <el-icon class="upload-icon-sm"><UploadFilled /></el-icon>
+          <span class="progress-filename">{{ knowledgeStore.uploadingProgress.filename }}</span>
+          <span class="progress-percent">{{ knowledgeStore.uploadingProgress.percent }}%</span>
+        </div>
+        <el-progress
+          :percentage="knowledgeStore.uploadingProgress.percent"
+          :stroke-width="10"
+          :color="knowledgeStore.uploadingProgress.percent === 100 ? '#67c23a' : '#409eff'"
+          striped
+          striped-flow
+        />
+        <div class="progress-hint">上传完成后，后台将自动执行向量化</div>
+      </div>
       <el-upload
+        v-else
         drag
         multiple
         :auto-upload="false"
@@ -73,12 +160,66 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { Delete, UploadFilled } from '@element-plus/icons-vue'
+import { onActivated, ref, watch, computed } from 'vue'
+import { Delete, Search, UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useKnowledgeStore } from '@/stores/knowledge'
 
 const knowledgeStore = useKnowledgeStore()
+const searchQuery = ref('')
+const searching = ref(false)
+const searchMode = ref('search')
+
+// 搜索结果去重：同文件名只保留相关度最高的那条
+const uniqueSearchResults = computed(() => {
+  const seen = new Set<string>()
+  return knowledgeStore.searchResults.filter(r => {
+    if (!r.filename || seen.has(r.filename)) return false
+    seen.add(r.filename)
+    return true
+  })
+})
+
+const searchFileCount = computed(() => uniqueSearchResults.value.length)
+
+const uniqueAiSources = computed(() => {
+  const seen = new Set<string>()
+  return knowledgeStore.aiSources.filter(s => {
+    if (!s.filename || seen.has(s.filename)) return false
+    seen.add(s.filename)
+    return true
+  })
+})
+
+// 切换模式时清空结果
+watch(searchMode, () => {
+  knowledgeStore.searchResults = []
+  knowledgeStore.clearAsk()
+})
+
+async function handleSearch() {
+  if (!searchQuery.value.trim()) return
+  searching.value = true
+  try {
+    await knowledgeStore.search(searchQuery.value.trim())
+    if (!knowledgeStore.searchResults.length) {
+      ElMessage.info('未找到相关内容')
+    }
+  } catch {
+    ElMessage.error('搜索失败')
+  } finally {
+    searching.value = false
+  }
+}
+
+async function handleAsk() {
+  if (!searchQuery.value.trim()) return
+  try {
+    await knowledgeStore.ask(searchQuery.value.trim())
+  } catch {
+    ElMessage.error('AI 问答失败')
+  }
+}
 
 function formatFileSize(bytes: number) {
   if (!bytes) return '未知大小'
@@ -136,8 +277,10 @@ async function handleDelete(id: number) {
   }
 }
 
-onMounted(() => {
-  knowledgeStore.fetchDocuments()
+onActivated(() => {
+  if (!knowledgeStore.documents.length) {
+    knowledgeStore.fetchDocuments()
+  }
 })
 </script>
 
@@ -146,6 +289,117 @@ onMounted(() => {
   max-width: 800px;
 }
 
+/* 搜索 & AI 问答 */
+.search-card {
+  margin-bottom: 20px;
+}
+
+.search-tabs {
+  margin-bottom: 12px;
+}
+
+.search-tabs :deep(.el-tabs__header) {
+  margin-bottom: 0;
+}
+
+.search-bar {
+  display: flex;
+  gap: 12px;
+}
+
+.search-bar .el-input {
+  flex: 1;
+}
+
+.search-results {
+  margin-top: 16px;
+  border-top: 1px solid #f0f0f0;
+  padding-top: 16px;
+}
+
+.results-header {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin-bottom: 12px;
+}
+
+.result-item {
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: #f8fafc;
+  margin-bottom: 8px;
+}
+
+.result-item:last-child {
+  margin-bottom: 0;
+}
+
+.result-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.result-score {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.result-content {
+  font-size: 13px;
+  color: var(--color-text);
+  line-height: 1.6;
+}
+
+/* AI 回答 */
+.ai-answer {
+  margin-top: 16px;
+  border-top: 1px solid #f0f0f0;
+  padding-top: 16px;
+}
+
+.answer-header {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-primary);
+  margin-bottom: 12px;
+}
+
+.answer-content {
+  font-size: 14px;
+  color: var(--color-text);
+  line-height: 1.8;
+  white-space: pre-wrap;
+  background: #f8fafc;
+  padding: 16px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--color-primary);
+}
+
+.answer-sources {
+  margin-top: 12px;
+}
+
+.sources-title {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-bottom: 8px;
+}
+
+.source-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.source-score {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+/* 上传 */
 .upload-card {
   margin-bottom: 20px;
 }
@@ -174,6 +428,43 @@ onMounted(() => {
 .upload-hint {
   font-size: 12px;
   color: var(--color-text-secondary);
+}
+
+/* 上传进度 */
+.upload-progress-wrap {
+  padding: 24px 20px;
+}
+
+.progress-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.upload-icon-sm {
+  font-size: 16px;
+  color: var(--color-primary);
+}
+
+.progress-filename {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress-percent {
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.progress-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-top: 8px;
 }
 
 /* 文档列表 */

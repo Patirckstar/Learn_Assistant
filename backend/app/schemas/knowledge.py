@@ -27,3 +27,9 @@ class SearchResult(BaseModel):
 class KnowledgeSearchOut(BaseModel):
     query: str
     results: list[SearchResult]
+
+
+class KnowledgeAskOut(BaseModel):
+    query: str
+    answer: str
+    sources: list[SearchResult]

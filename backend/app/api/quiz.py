@@ -50,25 +50,33 @@ def list_questions(chapter_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/questions/{chapter_id}/exam")
-def get_exam_questions(chapter_id: int, count: int = 5, db: Session = Depends(get_db)):
-    """获取考试题目（不含答案）"""
+def get_exam_questions(chapter_id: int, count: int = 5, time_limit: int = 0, db: Session = Depends(get_db)):
+    """获取考试题目（不含答案），time_limit=秒数，0=不限时"""
     questions = quiz_svc.get_questions(db, chapter_id)
     if not questions:
         raise HTTPException(status_code=404, detail="该章节暂无题目，请先生成")
     selected = questions[:min(count, len(questions))]
-    return [
-        {k: v for k, v in _q_to_out(q).items() if k not in ("answer", "explanation")}
-        for q in selected
-    ]
+    return {
+        "time_limit": time_limit,
+        "questions": [
+            {k: v for k, v in _q_to_out(q).items() if k not in ("answer", "explanation")}
+            for q in selected
+        ],
+    }
 
 
 @router.post("/submit")
 def submit(body: ExamSubmitIn, user_id: int = 1, db: Session = Depends(get_db)):
     """提交考试答案，批改并返回结果"""
+    # 验证时间限制
+    if body.time_limit > 0 and body.time_used is not None and body.time_used > body.time_limit:
+        raise HTTPException(status_code=400, detail=f"答题超时（限制 {body.time_limit}s，实际 {body.time_used}s）")
+
     answers_dicts = [{"question_id": a.question_id, "user_answer": a.user_answer} for a in body.answers]
     try:
         result = quiz_svc.submit_exam(
-            db, user_id, body.chapter_id, body.question_ids, answers_dicts, body.time_used
+            db, user_id, body.chapter_id, body.question_ids, answers_dicts,
+            time_used=body.time_used, time_limit=body.time_limit,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

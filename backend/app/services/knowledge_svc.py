@@ -49,14 +49,56 @@ def upload_document(db: Session, file) -> tuple[Document, str]:
     return doc, text
 
 
+def _revectorize_all(db: Session):
+    """重新向量化所有文档（逐文档替换，不中断搜索）"""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("触发全量重新向量化")
+
+    docs = db.query(Document).order_by(Document.uploaded_at).all()
+    if not docs:
+        return
+
+    for doc in docs:
+        try:
+            # 先清除旧向量 → 再向量化新内容（最多丢失 1 个文档）
+            vector_delete(doc.id)
+            text = parse_file(doc.file_path)
+            chunk_count = vector_add(doc.id, doc.filename, text)
+            doc.chunk_count = chunk_count
+        except Exception as e:
+            logger.warning("文档重新向量化失败: id=%d, filename=%s, error=%s", doc.id, doc.filename, e)
+            doc.chunk_count = 0
+
+    db.commit()
+    logger.info("全量重新向量化完成，共 %d 个文档", len(docs))
+
+
 def vectorize_document(doc_id: int, filename: str, text: str):
-    """后台执行向量化（不阻塞上传请求）"""
+    """后台执行向量化，完成后更新 chunk_count
+    每新增 10 个文档时，自动触发全量重新向量化（清空 + 重建）
+    """
+    from app.core.database import SessionLocal
+
+    db = SessionLocal()
     try:
         chunk_count = vector_add(doc_id, filename, text)
-        # 注：这里无法直接用 db session，需要在调用方处理
-        # 实际可在 API 层开新 session 更新 chunk_count
+        doc = db.query(Document).filter(Document.id == doc_id).first()
+        if doc:
+            doc.chunk_count = chunk_count
+            db.commit()
+
+        # 每 10 个文档触发全量重新向量化
+        total_docs = db.query(Document).count()
+        if total_docs > 0 and total_docs % 10 == 0:
+            _revectorize_all(db)
+
     except Exception as e:
-        pass
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("向量化失败: doc_id=%d, error=%s", doc_id, e)
+    finally:
+        db.close()
 
 
 def get_documents(db: Session) -> list[Document]:

@@ -40,6 +40,16 @@
             <el-option label="混合" value="mixed" />
           </el-select>
         </div>
+        <div class="form-group">
+          <label>时间限制</label>
+          <el-select v-model="timeLimit" class="time-select" :disabled="isExamMode">
+            <el-option label="不限时" :value="0" />
+            <el-option label="5 分钟" :value="300" />
+            <el-option label="10 分钟" :value="600" />
+            <el-option label="15 分钟" :value="900" />
+            <el-option label="30 分钟" :value="1800" />
+          </el-select>
+        </div>
         <div class="form-group action-group">
           <label>&nbsp;</label>
           <el-button
@@ -93,6 +103,9 @@
       <div class="exam-header">
         <div class="exam-info">
           共 {{ questions.length }} 题 · 已答 {{ answeredCount }} 题
+        </div>
+        <div v-if="timeLimit > 0" class="exam-timer" :class="{ 'timer-warning': remainingTime <= 60 }">
+          ⏱ {{ formatTime(remainingTime) }}
         </div>
         <el-button type="primary" size="default" @click="handleSubmit" :loading="quizStore.loading">
           提交答卷
@@ -164,6 +177,9 @@
             </div>
             <div class="summary-item" v-if="quizStore.result.time_used">
               用时: {{ formatTime(quizStore.result.time_used) }}
+              <template v-if="quizStore.result.time_limit">
+                / {{ formatTime(quizStore.result.time_limit) }}
+              </template>
             </div>
           </div>
           <div class="result-actions">
@@ -245,7 +261,7 @@
               </strong>
               / {{ h.total_score }}
             </span>
-            <span class="ht-time">{{ h.time_used ? formatTime(h.time_used) : '-' }}</span>
+            <span class="ht-time">{{ h.time_used ? formatTime(h.time_used) : '-' }}{{ h.time_limit ? ' / ' + formatTime(h.time_limit) : '' }}</span>
             <span class="ht-date">{{ formatDate(h.created_at) }}</span>
             <span class="ht-action">
               <el-button size="small" text type="primary">查看</el-button>
@@ -258,7 +274,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onActivated, reactive } from 'vue'
 import { MagicStick } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useQuizStore } from '@/stores/quiz'
@@ -271,11 +287,14 @@ const courseStore = useCourseStore()
 const selectedChapterId = ref<number | null>(null)
 const questionCount = ref(5)
 const difficulty = ref('medium')
+const timeLimit = ref(0)
 const isExamMode = ref(false)
 const userAnswers = reactive<Record<number, string>>({})
 const showHistory = ref(false)
 const historyList = ref<ExamHistory[]>([])
 const historyLoading = ref(false)
+const remainingTime = ref(0)
+let timerInterval: ReturnType<typeof setInterval> | null = null
 
 const questions = computed(() => quizStore.questions)
 
@@ -314,12 +333,33 @@ function startExam() {
   isExamMode.value = true
   userAnswersClean()
   quizStore.clearResult()
+  // 初始化倒计时
+  if (timeLimit.value > 0) {
+    remainingTime.value = timeLimit.value
+    timerInterval = setInterval(() => {
+      remainingTime.value--
+      if (remainingTime.value <= 0) {
+        clearInterval(timerInterval!)
+        timerInterval = null
+        ElMessage.warning('答题时间已到，自动提交')
+        handleSubmit()
+      }
+    }, 1000)
+  }
 }
 
 function cancelExam() {
   isExamMode.value = false
   userAnswersClean()
   quizStore.clearResult()
+  clearTimer()
+}
+
+function clearTimer() {
+  if (timerInterval) {
+    clearInterval(timerInterval)
+    timerInterval = null
+  }
 }
 
 function clearQuestions() {
@@ -333,14 +373,18 @@ function userAnswersClean() {
 
 async function handleSubmit() {
   if (!selectedChapterId.value || !questions.value.length) return
+  clearTimer()
   const qids = questions.value.map(q => q.id)
   const answers = qids.map(id => ({
     question_id: id,
     user_answer: userAnswers[id] || '',
   }))
 
+  // 计算实际用时
+  const used = timeLimit.value > 0 ? timeLimit.value - remainingTime.value : undefined
+
   try {
-    await quizStore.submit(selectedChapterId.value, qids, answers)
+    await quizStore.submit(selectedChapterId.value, qids, answers, timeLimit.value, used)
     isExamMode.value = false
     ElMessage.success(`考试完成，得分 ${quizStore.result?.score}`)
   } catch (e: any) {
@@ -382,7 +426,7 @@ function formatDate(dateStr: string) {
   })
 }
 
-onMounted(async () => {
+onActivated(async () => {
   if (!courseStore.outlineTree.length) {
     await courseStore.fetchOutline()
   }
@@ -430,6 +474,10 @@ onMounted(async () => {
 
 .diff-select {
   width: 100px;
+}
+
+.time-select {
+  width: 120px;
 }
 
 .action-group {
@@ -496,6 +544,23 @@ onMounted(async () => {
 .exam-info {
   font-size: 14px;
   color: var(--color-text-secondary);
+}
+
+.exam-timer {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.exam-timer.timer-warning {
+  color: #ef4444;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .exam-questions {

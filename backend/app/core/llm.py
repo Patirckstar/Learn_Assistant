@@ -1,3 +1,8 @@
+import ssl
+
+# Windows SSL 证书问题
+ssl._create_default_https_context = ssl._create_unverified_context
+
 from langchain_ollama import ChatOllama
 from langchain_community.embeddings import HuggingFaceEmbeddings
 

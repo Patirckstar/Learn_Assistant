@@ -100,7 +100,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onActivated } from 'vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { useDashboardStore } from '@/stores/dashboard'
 import { useCourseStore } from '@/stores/course'
@@ -138,7 +138,7 @@ function handleReset() {
   }).catch(() => {})
 }
 
-onMounted(() => {
+onActivated(() => {
   Promise.all([
     store.fetchDashboard(),
     courseStore.fetchOutline(),

@@ -11,7 +11,11 @@ export const useCourseStore = defineStore('course', () => {
   async function generateOutline() {
     loading.value = true
     try {
-      outlineTree.value = await api.generateOutline()
+      const res = await api.generateOutline()
+      outlineTree.value = res.data
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || '生成失败，请确保 Ollama 服务运行中且知识库已上传文档'
+      throw new Error(msg)
     } finally {
       loading.value = false
     }
@@ -20,20 +24,22 @@ export const useCourseStore = defineStore('course', () => {
   async function fetchOutline() {
     loading.value = true
     try {
-      outlineTree.value = await api.getOutline()
+      const res = await api.getOutline()
+      outlineTree.value = res.data
     } finally {
       loading.value = false
     }
   }
 
   async function loadChapter(id: number) {
-    currentChapter.value = await api.getChapter(id)
+    const res = await api.getChapter(id)
+    currentChapter.value = res.data
   }
 
   async function regenerateChapter(id: number) {
     const result = await api.regenerateChapter(id)
     if (currentChapter.value && currentChapter.value.id === id) {
-      currentChapter.value.content = result.content
+      currentChapter.value.content = result.data.content
     }
   }
 

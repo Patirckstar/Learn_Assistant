@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
     OLLAMA_MODEL: str = "qwen2.5:7b"
 
-    # Embedding 模型
-    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+    # Embedding 模型（本地路径，首次运行需下载到该目录）
+    EMBEDDING_MODEL: str = "./models/all-MiniLM-L6-v2"
 
     # ChromaDB
     CHROMA_PERSIST_DIR: str = "./data/chroma"

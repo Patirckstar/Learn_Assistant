@@ -36,11 +36,12 @@ export const useQuizStore = defineStore('quiz', () => {
     chapterId: number,
     questionIds: number[],
     answers: { question_id: number; user_answer: string }[],
+    timeLimit = 0,
     timeUsed?: number,
   ) {
     loading.value = true
     try {
-      const res = await api.submitExam(chapterId, questionIds, answers, timeUsed)
+      const res = await api.submitExam(chapterId, questionIds, answers, timeLimit, timeUsed)
       result.value = res.data
       return res.data
     } finally {

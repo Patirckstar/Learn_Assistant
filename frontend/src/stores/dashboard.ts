@@ -18,7 +18,8 @@ export const useDashboardStore = defineStore('dashboard', () => {
   async function fetchDashboard(userId = 1) {
     loading.value = true
     try {
-      data.value = await api.getDashboard(userId)
+      const res = await api.getDashboard(userId)
+      data.value = res.data
     } finally {
       loading.value = false
     }

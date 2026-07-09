@@ -1,12 +1,16 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { Document, SearchResult } from '../api/knowledge'
-import { uploadDocument as apiUpload, getDocuments as apiGetDocuments, deleteDocument as apiDeleteDocument, searchKnowledge as apiSearch } from '../api/knowledge'
+import { uploadDocument as apiUpload, getDocuments as apiGetDocuments, deleteDocument as apiDeleteDocument, searchKnowledge as apiSearch, askKnowledge as apiAsk } from '../api/knowledge'
 
 export const useKnowledgeStore = defineStore('knowledge', () => {
   const documents = ref<Document[]>([])
   const loading = ref(false)
   const searchResults = ref<SearchResult[]>([])
+  const aiAnswer = ref('')
+  const aiSources = ref<SearchResult[]>([])
+  const aiLoading = ref(false)
+  const uploadingProgress = ref<{ filename: string; percent: number } | null>(null)
 
   async function fetchDocuments() {
     loading.value = true
@@ -19,9 +23,18 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   }
 
   async function upload(file: File) {
-    const res = await apiUpload(file)
-    documents.value.unshift(res.data)
-    return res.data
+    uploadingProgress.value = { filename: file.name, percent: 0 }
+    try {
+      const res = await apiUpload(file, (p) => {
+        if (uploadingProgress.value) uploadingProgress.value.percent = p
+      })
+      documents.value.unshift(res.data)
+      uploadingProgress.value = null
+      return res.data
+    } catch (e) {
+      uploadingProgress.value = null
+      throw e
+    }
   }
 
   async function deleteDocument(id: number) {
@@ -35,5 +48,22 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     return res.data
   }
 
-  return { documents, loading, searchResults, fetchDocuments, upload, deleteDocument, search }
+  async function ask(query: string, k = 5) {
+    aiLoading.value = true
+    try {
+      const res = await apiAsk(query, k)
+      aiAnswer.value = res.data.answer
+      aiSources.value = res.data.sources
+      return res.data
+    } finally {
+      aiLoading.value = false
+    }
+  }
+
+  function clearAsk() {
+    aiAnswer.value = ''
+    aiSources.value = []
+  }
+
+  return { documents, loading, searchResults, aiAnswer, aiSources, aiLoading, uploadingProgress, fetchDocuments, upload, deleteDocument, search, ask, clearAsk }
 })

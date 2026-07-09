@@ -129,6 +129,7 @@ def submit_exam(
     question_ids: list[int],
     answers: list[dict],
     time_used: int | None = None,
+    time_limit: int = 0,
 ) -> dict:
     """提交考试答案，批改并保存"""
     questions = db.query(Question).filter(Question.id.in_(question_ids)).all()
@@ -178,6 +179,7 @@ def submit_exam(
         chapter_id=chapter_id,
         total_score=total_score,
         score=score,
+        time_limit=time_limit,
         time_used=time_used,
     )
     db.add(exam)
@@ -204,6 +206,7 @@ def submit_exam(
         "exam_id": exam.id,
         "total_score": total_score,
         "score": score,
+        "time_limit": time_limit,
         "time_used": time_used,
         "details": [
             {
@@ -244,6 +247,7 @@ def get_exams(db: Session, user_id: int, chapter_id: int | None = None) -> list[
             "chapter_title": chapter_title,
             "total_score": float(e.total_score),
             "score": float(e.score),
+            "time_limit": e.time_limit or 0,
             "time_used": e.time_used,
             "created_at": e.created_at.isoformat() if e.created_at else "",
         })
@@ -284,6 +288,7 @@ def get_exam_detail(db: Session, exam_id: int) -> dict | None:
         "exam_id": exam.id,
         "total_score": float(exam.total_score),
         "score": float(exam.score),
+        "time_limit": exam.time_limit or 0,
         "time_used": exam.time_used,
         "details": detail_list,
         "created_at": exam.created_at.isoformat() if exam.created_at else "",

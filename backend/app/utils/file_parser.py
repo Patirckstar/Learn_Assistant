@@ -54,7 +54,16 @@ def _parse_docx(file_path: str) -> str:
 
 
 def _parse_text(file_path: str) -> str:
-    with open(file_path, encoding="utf-8") as f:
+    # 优先 UTF-8，失败后尝试常见中文编码
+    encodings = ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]
+    for enc in encodings:
+        try:
+            with open(file_path, encoding=enc) as f:
+                return f.read()
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+    # 最后 fallback: 忽略无法解码的字节
+    with open(file_path, encoding="utf-8", errors="ignore") as f:
         return f.read()
 
 

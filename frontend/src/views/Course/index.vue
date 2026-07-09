@@ -88,7 +88,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onActivated } from 'vue'
 import { MagicStick, CircleCheck, Clock, Right } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import { useCourseStore } from '@/stores/course'
@@ -121,11 +121,24 @@ function getChapterStatus(chapterId: number) {
 async function selectChapter(id: number) {
   currentChapterId.value = id
   await courseStore.loadChapter(id)
+  // 无内容时自动生成
+  if (courseStore.currentChapter && !courseStore.currentChapter.content) {
+    regenerating.value = true
+    try {
+      await courseStore.regenerateChapter(id)
+    } finally {
+      regenerating.value = false
+    }
+  }
 }
 
 async function handleGenerate() {
-  await courseStore.generateOutline()
-  await dashboardStore.fetchDashboard()
+  try {
+    await courseStore.generateOutline()
+    await dashboardStore.fetchDashboard()
+  } catch (e: any) {
+    ElMessage.error(e.message || '生成失败')
+  }
 }
 
 async function handleRegenerate() {
@@ -150,11 +163,13 @@ async function markComplete() {
   await dashboardStore.updateProgress(currentChapterId.value, 'completed')
 }
 
-onMounted(async () => {
-  await Promise.all([
-    courseStore.fetchOutline(),
-    dashboardStore.fetchDashboard(),
-  ])
+onActivated(async () => {
+  if (!courseStore.outlineTree.length) {
+    await Promise.all([
+      courseStore.fetchOutline(),
+      dashboardStore.fetchDashboard(),
+    ])
+  }
 })
 </script>
 

@@ -38,6 +38,7 @@ export interface ExamResult {
   exam_id: number
   total_score: number
   score: number
+  time_limit: number
   time_used: number | null
   details: ExamDetail[]
   created_at: string
@@ -49,6 +50,7 @@ export interface ExamHistory {
   chapter_title: string | null
   total_score: number
   score: number
+  time_limit: number
   time_used: number | null
   created_at: string
 }
@@ -61,14 +63,17 @@ export function getQuestions(chapterId: number) {
   return request.get<QuestionOut[]>(`/api/quiz/questions/${chapterId}`)
 }
 
-export function getExamQuestions(chapterId: number, count = 5) {
-  return request.get<QuestionOut[]>(`/api/quiz/questions/${chapterId}/exam`, { params: { count } })
+export function getExamQuestions(chapterId: number, count = 5, timeLimit = 0) {
+  return request.get<{ time_limit: number; questions: QuestionOut[] }>(`/api/quiz/questions/${chapterId}/exam`, {
+    params: { count, time_limit: timeLimit },
+  })
 }
 
 export function submitExam(
   chapterId: number,
   questionIds: number[],
   answers: ExamAnswer[],
+  timeLimit = 0,
   timeUsed?: number,
   userId = 1,
 ) {
@@ -76,6 +81,7 @@ export function submitExam(
     chapter_id: chapterId,
     question_ids: questionIds,
     answers,
+    time_limit: timeLimit,
     time_used: timeUsed,
   }, { params: { user_id: userId } })
 }

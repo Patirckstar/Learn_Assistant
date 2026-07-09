@@ -22,11 +22,22 @@ export interface KnowledgeSearchResponse {
   results: SearchResult[]
 }
 
-export function uploadDocument(file: File) {
+export interface KnowledgeAskResponse {
+  query: string
+  answer: string
+  sources: SearchResult[]
+}
+
+export function uploadDocument(file: File, onProgress?: (percent: number) => void) {
   const form = new FormData()
   form.append('file', file)
   return request.post<Document>('/api/knowledge/upload', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress(e) {
+      if (onProgress && e.total) {
+        onProgress(Math.round((e.loaded / e.total) * 100))
+      }
+    },
   })
 }
 
@@ -40,6 +51,12 @@ export function deleteDocument(id: number) {
 
 export function searchKnowledge(query: string, k = 5) {
   return request.get<KnowledgeSearchResponse>('/api/knowledge/search', {
+    params: { query, k },
+  })
+}
+
+export function askKnowledge(query: string, k = 5) {
+  return request.get<KnowledgeAskResponse>('/api/knowledge/ask', {
     params: { query, k },
   })
 }
