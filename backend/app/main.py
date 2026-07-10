@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, face, knowledge, course, quiz, progress, voice, wrongbook
+from app.api import auth, face, profile, knowledge, course, quiz, progress, voice, wrongbook
 from app.core.config import settings
 from app.core.database import init_db
 from app.utils.task_queue import task_queue
@@ -57,6 +57,7 @@ app.add_middleware(
 # 注册路由
 app.include_router(auth.router)
 app.include_router(face.router)
+app.include_router(profile.router)
 app.include_router(knowledge.router)
 app.include_router(course.router)
 app.include_router(quiz.router)

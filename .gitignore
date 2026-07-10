@@ -1,10 +1,39 @@
-# ========== 项目自定义 ==========
-design-taste-frontend/*
-.trae/*
+# ========== Environment ==========
+.env
+.env.local
 
-# ========== 系统文件（可能出现在任何层级）==========
-.DS_Store
-Thumbs.db
+# ========== Python ==========
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# ========== Node ==========
+node_modules/
+dist/
+
+# ========== IDE ==========
+.idea/
+.vscode/
 *.swp
 *.swo
 *~
+
+# ========== OS ==========
+.DS_Store
+Thumbs.db
+
+# ========== Project: Model files (download separately) ==========
+backend/models/
+
+# ========== Project: Runtime data ==========
+backend/data/chroma/
+backend/data/faces/
+backend/data/tasks/
+backend/data/example_db.db
+
+# ========== Other ==========
+.trae/*
+design-taste-frontend/*
+backend/face_models/

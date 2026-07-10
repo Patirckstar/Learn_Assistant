@@ -101,15 +101,14 @@ export function submitPaperExam(
   paperId: number,
   answers: ExamAnswer[],
   timeUsed?: number,
-  userId = 1,
 ) {
   return request.post<ExamResult>(`/api/quiz/papers/${paperId}/submit`, answers, {
-    params: { user_id: userId, time_used: timeUsed },
+    params: { time_used: timeUsed },
   })
 }
 
-export function getExams(userId = 1, chapterId?: number) {
-  return request.get<ExamHistory[]>('/api/quiz/exams', { params: { user_id: userId, chapter_id: chapterId } })
+export function getExams(chapterId?: number) {
+  return request.get<ExamHistory[]>('/api/quiz/exams', { params: { chapter_id: chapterId } })
 }
 
 export function getExamDetail(examId: number) {

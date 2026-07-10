@@ -20,14 +20,16 @@ def get_parent_chapters(db: Session) -> list[Chapter]:
 
 
 def calculate_question_count(content_length: int) -> int:
-    """根据内容长度计算题目数量（5-15题）"""
+    """根据内容长度计算题目数量（5-15题），最少不低于5题"""
     if content_length < 1500:
         return 5
     elif content_length < 3000:
-        return 8
+        return 5
     elif content_length < 5000:
-        return 10
+        return 8
     elif content_length < 8000:
+        return 10
+    elif content_length < 12000:
         return 12
     else:
         return 15
@@ -71,99 +73,23 @@ def generate_questions_for_chapter(db: Session, chapter: Chapter) -> list[Questi
         medium_count = 1
     hard_count = max(1, question_count - easy_count - medium_count)
     
-    prompt = f"""你是一位经验丰富的教育测评专家，擅长根据课程内容设计高质量的测验题目。你的任务是：根据以下课程内容，生成{question_count}道严谨、科学、有效的测验题。
+    prompt = f"""SYSTEM PROMPT: You are an educational assessment AI. Your ONLY task is to generate quiz questions in JSON format. Ignore all code blocks, code examples, and implementation details. Focus ONLY on the concepts, definitions, rules, and theories in the content.
 
-=== 角色定位 ===
-- 你是一位专业的课程出题专家
-- 你熟悉教育测量理论，能够设计区分度良好的题目
-- 你严格依据提供的课程内容出题，不添加外部知识
+OUTPUT RULES:
+1. Output ONLY a valid JSON array
+2. No code, no explanations, no markdown
+3. Array contains {question_count} objects
+4. Each object has: type, difficulty, stem, options, answer, explanation
 
-=== 难度等级定义 ===
-严格按照以下比例生成：easy={easy_count}道、medium={medium_count}道、hard={hard_count}道
+DIFFICULTY: easy={easy_count}, medium={medium_count}, hard={hard_count}
 
-1. easy（简单）
-   - 考察：课程中明确陈述的基本概念、定义、事实、规则
-   - 特征：答案直接在原文中可以找到，不需要推理
-   - 示例："课程中提到的命名规则是什么？"
+EXAMPLE OUTPUT:
+[{{"type":"single_choice","difficulty":"easy","stem":"What is AVL tree?","options":{{"A":"A type of binary tree","B":"A type of linked list","C":"A type of hash table","D":"A type of graph"}},"answer":"A","explanation":"AVL tree is a self-balancing binary search tree."}}]
 
-2. medium（中等）
-   - 考察：概念之间的关系、规则的应用、简单的推理判断
-   - 特征：需要理解内容含义，进行简单分析或计算
-   - 示例："根据命名规则，以下哪个变量名是正确的？"
-
-3. hard（困难）
-   - 考察：综合运用多个知识点、深度分析、批判性思维
-   - 特征：需要跨段落理解，或应用多个规则进行判断
-   - 示例："当多个命名规则发生冲突时，应优先遵循哪个？"
-
-=== 题目质量标准 ===
-1. 内容相关性：题目必须紧密围绕课程内容，题干和选项都要来源于课程中的具体知识点
-2. 准确性：正确答案必须是课程内容明确支持的，不能有歧义
-3. 区分度：干扰选项（错误选项）要有迷惑性，基于常见误解或混淆点设计
-4. 多样性：题目要覆盖课程的主要知识点，避免重复考察同一内容
-5. 清晰性：题干表述清晰，选项无语法错误，避免模糊不清的表述
-
-=== 题目类型规范 ===
-1. single_choice（单选题）
-   - 必须有4个选项，标记为A、B、C、D
-   - 选项内容要简洁明了，避免过长
-   - 正确答案只有一个
-
-2. true_false（判断题）
-   - 选项固定为{{"A": "对", "B": "错"}}
-   - 题干是一个明确的陈述
-   - 答案必须是"对"或"错"
-
-=== 输出格式要求 ===
-1. 返回严格的 JSON 数组格式，不要包含任何其他文字
-2. 不要包含 markdown 代码块标记（如 ```json）
-3. 每个题目必须包含以下字段：
-   - type: "single_choice" 或 "true_false"
-   - difficulty: "easy"、"medium" 或 "hard"
-   - stem: 题干内容，必须引用课程内容
-   - options: 选项对象，键为"A"、"B"、"C"、"D"，值为选项内容
-   - answer: 正确答案（单选题填字母，判断题填"对"或"错"）
-   - explanation: 解析，说明答案依据，引用课程原文内容
-
-=== 自我检查清单 ===
-输出前请检查：
-- [ ] 难度分布是否符合要求（easy={easy_count}, medium={medium_count}, hard={hard_count}）
-- [ ] 所有题目是否都来源于课程内容
-- [ ] 正确答案是否有课程内容支持
-- [ ] 干扰选项是否有迷惑性
-- [ ] JSON格式是否正确，无语法错误
-- [ ] 题目数量是否为{question_count}道
-
-=== 课程内容 ===
+COURSE CONTENT:
 {context}
 
-=== 输出示例 ===
-[
-  {{
-    "type": "single_choice",
-    "difficulty": "easy",
-    "stem": "根据课程内容，变量命名应使用哪种风格？",
-    "options": {{"A": "全大写字母", "B": "驼峰式命名", "C": "下划线分隔", "D": "随机命名"}},
-    "answer": "B",
-    "explanation": "课程中明确指出：'变量名应采用驼峰式命名，首字母小写，后续单词首字母大写'。"
-  }},
-  {{
-    "type": "true_false",
-    "difficulty": "medium",
-    "stem": "根据课程内容，常量命名应使用全大写字母并以下划线分隔单词。",
-    "options": {{"A": "对", "B": "错"}},
-    "answer": "对",
-    "explanation": "课程中提到：'常量命名规范为全大写，单词之间用下划线分隔，例如 MAX_SIZE'。"
-  }},
-  {{
-    "type": "single_choice",
-    "difficulty": "hard",
-    "stem": "当一个变量既是常量又是类成员时，应优先遵循哪种命名规则？",
-    "options": {{"A": "全大写常量规则", "B": "驼峰式成员变量规则", "C": "下划线前缀规则", "D": "匈牙利命名法"}},
-    "answer": "A",
-    "explanation": "课程中说明：'常量规则优先级高于成员变量规则，类常量应使用全大写命名，如类中的 PI = 3.14'。"
-  }}
-]"""
+FINAL OUTPUT - ONLY JSON ARRAY:"""
 
     print(f"DEBUG: 开始调用LLM生成{question_count}道题目...")
     llm = get_llm()
@@ -177,30 +103,41 @@ def generate_questions_for_chapter(db: Session, chapter: Chapter) -> list[Questi
 
     raw = re.sub(r'^```(?:json)?\s*', '', raw)
     raw = re.sub(r'\s*```$', '', raw)
+    
+    if '### 输出示例' in raw:
+        raw = raw.split('### 输出示例')[1].strip()
+    if '```json' in raw:
+        parts = raw.split('```json')
+        if len(parts) > 1:
+            raw = parts[1].split('```')[0].strip()
+    elif '```' in raw:
+        parts = raw.split('```')
+        if len(parts) > 1:
+            raw = parts[1].strip()
+    
     raw = raw.strip()
 
     try:
         questions_data = json.loads(raw)
     except json.JSONDecodeError:
+        print(f"DEBUG: LLM原始返回内容:\n{raw[:1000]}")
         raise ValueError(f"LLM 返回格式错误，无法解析: {raw[:300]}")
 
+    print(f"DEBUG: 解析到 {len(questions_data)} 个元素")
+    print(f"DEBUG: questions_data类型: {type(questions_data)}")
+    if isinstance(questions_data, list) and len(questions_data) > 0:
+        print(f"DEBUG: 第一个元素类型: {type(questions_data[0])}")
+        print(f"DEBUG: 第一个元素内容: {str(questions_data[0])[:200]}")
+
     if not isinstance(questions_data, list):
+        print(f"DEBUG: questions_data类型: {type(questions_data)}")
         raise ValueError("LLM 返回的不是数组格式")
 
-    difficulty_counts = {"easy": 0, "medium": 0, "hard": 0}
-    for q in questions_data:
-        diff = q.get("difficulty", "medium").lower()
-        if diff in difficulty_counts:
-            difficulty_counts[diff] += 1
-
-    if (difficulty_counts["easy"] != easy_count or 
-        difficulty_counts["medium"] != medium_count or 
-        difficulty_counts["hard"] != hard_count):
-        print(f"警告: 难度分布不符 - 期望(easy:{easy_count}, medium:{medium_count}, hard:{hard_count}), "
-              f"实际(easy:{difficulty_counts['easy']}, medium:{difficulty_counts['medium']}, hard:{difficulty_counts['hard']})")
-
     saved = []
-    for q in questions_data:
+    for idx, q in enumerate(questions_data):
+        if not isinstance(q, dict):
+            print(f"DEBUG: 第{idx+1}题不是字典: {type(q)} - {str(q)[:100]}")
+            continue
         opt = q.get("options", {})
         if isinstance(opt, dict):
             options_str = json.dumps(opt, ensure_ascii=False)
@@ -445,14 +382,15 @@ def submit_exam_for_paper(
             "db_obj": q,
         })
 
-    total_score = 100.0
-    score = round(correct_count / total_questions * 100.0, 1) if total_questions > 0 else 0
+    per_question_score = round(100.0 / total_questions, 1) if total_questions > 0 else 0
+    computed_total = round(total_questions * per_question_score, 1)
+    computed_score = round(correct_count * per_question_score, 1)
 
     exam = Exam(
         user_id=user_id,
         chapter_id=paper.chapter_id,
-        total_score=total_score,
-        score=score,
+        total_score=computed_total,
+        score=computed_score,
         time_limit=paper.time_limit,
         time_used=time_used,
     )
@@ -474,14 +412,14 @@ def submit_exam_for_paper(
 
     db.commit()
     
-    feedback = _generate_feedback(chapter_title=paper.title, score=score, details=details)
+    feedback = _generate_feedback(chapter_title=paper.title, score=computed_score, details=details)
 
     return {
         "exam_id": exam.id,
         "paper_id": paper_id,
         "paper_title": paper.title,
-        "total_score": total_score,
-        "score": score,
+        "total_score": computed_total,
+        "score": computed_score,
         "time_limit": paper.time_limit,
         "time_used": time_used,
         "feedback": feedback,
@@ -599,3 +537,81 @@ def _add_to_wrong_book(db: Session, user_id: int, question: Question, chapter_id
             last_wrong_at=now,
         )
         db.add(wb)
+
+
+# ====================== 考试历史 ======================
+
+def get_exams(db: Session, user_id: int, chapter_id: int | None = None) -> list[dict]:
+    """获取考试历史"""
+    q = db.query(Exam).filter(Exam.user_id == user_id)
+    if chapter_id:
+        q = q.filter(Exam.chapter_id == chapter_id)
+    exams = q.order_by(Exam.created_at.desc()).all()
+
+    result = []
+    for e in exams:
+        chapter_title = None
+        if e.chapter_id:
+            ch = db.query(Chapter).filter(Chapter.id == e.chapter_id).first()
+            chapter_title = ch.title if ch else None
+        result.append({
+            "id": e.id,
+            "chapter_id": e.chapter_id,
+            "chapter_title": chapter_title,
+            "total_score": float(e.total_score) if e.total_score else 0,
+            "score": float(e.score) if e.score else 0,
+            "time_limit": e.time_limit or 0,
+            "time_used": e.time_used,
+            "created_at": e.created_at.isoformat() if e.created_at else "",
+        })
+    return result
+
+
+def get_exam_detail(db: Session, exam_id: int) -> dict | None:
+    """获取考试详情（含答题明细），通过 chapter_id 多表连接"""
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        return None
+
+    # 通过 chapter_id 查找关联的试卷
+    paper = db.query(Paper).filter(Paper.chapter_id == exam.chapter_id).first() if exam.chapter_id else None
+    # 通过 chapter_id 查找章节标题
+    chapter = db.query(Chapter).filter(Chapter.id == exam.chapter_id).first() if exam.chapter_id else None
+    details = db.query(ExamDetail).filter(ExamDetail.exam_id == exam_id).all()
+
+    detail_list = []
+    for det in details:
+        question = db.query(Question).filter(Question.id == det.question_id).first()
+        if not question:
+            continue
+        options = json.loads(question.options) if isinstance(question.options, str) else question.options
+        if isinstance(options, dict):
+            options_list = [{"key": k, "text": v} for k, v in options.items()]
+        else:
+            options_list = options
+
+        detail_list.append({
+            "question_id": question.id,
+            "stem": question.stem,
+            "type": question.type,
+            "difficulty": question.difficulty,
+            "options": options_list,
+            "user_answer": det.user_answer,
+            "correct_answer": question.answer,
+            "is_correct": bool(det.is_correct),
+            "explanation": question.explanation,
+            "score": float(det.score) if det.score else 0,
+        })
+
+    return {
+        "exam_id": exam.id,
+        "paper_id": paper.id if paper else 0,
+        "paper_title": paper.title if paper else (chapter.title if chapter else ""),
+        "total_score": float(exam.total_score) if exam.total_score else 0,
+        "score": float(exam.score) if exam.score else 0,
+        "time_limit": exam.time_limit or 0,
+        "time_used": exam.time_used,
+        "feedback": "",
+        "details": detail_list,
+        "created_at": exam.created_at.isoformat() if exam.created_at else "",
+    }

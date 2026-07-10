@@ -1,11 +1,31 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# Environment
 .env
-data/uploads/*
-data/chroma/*
-data/faces/*
+.env.local
+
+# Runtime data
+data/uploads/
+data/chroma/
+data/faces/
+data/tasks/
+data/example_db.db
 !data/uploads/.gitkeep
 !data/chroma/.gitkeep
 !data/faces/.gitkeep
+
+# Model files (download separately)
+models/
+
+# Face recognition models
+face_models/
+
+# IDE
 .idea/
+.vscode/

@@ -18,7 +18,10 @@ export const useQuizStore = defineStore('quiz', () => {
     return res.data
   }
 
-  async function refreshPapers(callback?: (progress: number, message: string) => void) {
+  async function refreshPapers(
+    onProgress?: (progress: number, message: string) => void,
+    onCompleted?: (data: { generatedCount: number; skippedCount: number; totalCount: number }) => void,
+  ) {
     refreshing.value = true
     try {
       const response = await api.refreshPapers()
@@ -41,10 +44,17 @@ export const useQuizStore = defineStore('quiz', () => {
             const dataStr = line.substring(6).trim()
             try {
               const data = JSON.parse(dataStr)
-              if (data.progress !== undefined && callback) {
-                callback(data.progress, data.message)
+              if (data.progress !== undefined && onProgress) {
+                onProgress(data.progress, data.message)
               }
               if (data.status === 'completed') {
+                if (onCompleted) {
+                  onCompleted({
+                    generatedCount: data.generated_count ?? 0,
+                    skippedCount: data.skipped_count ?? 0,
+                    totalCount: data.total_count ?? 0,
+                  })
+                }
                 await fetchPapers()
               }
               if (data.status === 'error') {
@@ -90,7 +100,7 @@ export const useQuizStore = defineStore('quiz', () => {
   }
 
   async function fetchExams(chapterId?: number) {
-    const res = await api.getExams(1, chapterId)
+    const res = await api.getExams(chapterId)
     exams.value = res.data
     return res.data
   }

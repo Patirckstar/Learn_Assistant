@@ -10,6 +10,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db, SessionLocal
+from app.core.security import get_current_user
+from app.models.user import User
 from app.services import quiz_svc
 
 router = APIRouter(prefix="/api/quiz", tags=["测验"])
@@ -43,8 +45,11 @@ def refresh_papers_stream():
         local_db = None
         try:
             local_db = SessionLocal()
+            # 获取章节总数，用于计算 skipped_count
+            from app.models.chapter import Chapter
+            total_chapters = local_db.query(Chapter).filter(Chapter.level == 1).count()
             papers = quiz_svc.refresh_all_papers(local_db, progress_callback=progress_callback)
-            q.put(f"data: {json.dumps({'status': 'completed', 'paper_count': len(papers)}, ensure_ascii=False)}\n\n")
+            q.put(f"data: {json.dumps({'status': 'completed', 'generated_count': len(papers), 'skipped_count': total_chapters - len(papers), 'total_count': total_chapters}, ensure_ascii=False)}\n\n")
         except Exception as e:
             q.put(f"data: {json.dumps({'status': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n")
         finally:
@@ -75,10 +80,10 @@ def get_exam_questions(paper_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/papers/{paper_id}/submit")
-def submit_exam(paper_id: int, answers: list[dict], user_id: int = 1, time_used: int | None = None, db: Session = Depends(get_db)):
+def submit_exam(paper_id: int, answers: list[dict], time_used: int | None = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """提交试卷答案，批改并返回结果"""
     try:
-        result = quiz_svc.submit_exam_for_paper(db, user_id, paper_id, answers, time_used)
+        result = quiz_svc.submit_exam_for_paper(db, current_user.id, paper_id, answers, time_used)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -87,9 +92,9 @@ def submit_exam(paper_id: int, answers: list[dict], user_id: int = 1, time_used:
 
 
 @router.get("/exams")
-def list_exams(user_id: int = 1, chapter_id: int | None = None, db: Session = Depends(get_db)):
+def list_exams(chapter_id: int | None = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """获取考试历史"""
-    return quiz_svc.get_exams(db, user_id, chapter_id)
+    return quiz_svc.get_exams(db, current_user.id, chapter_id)
 
 
 @router.get("/exams/{exam_id}")

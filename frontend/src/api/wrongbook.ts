@@ -43,18 +43,18 @@ export interface WrongStats {
   by_chapter: { chapter_id: number; chapter_title: string; count: number }[]
 }
 
-export function getWrongQuestions(chapterId?: number, userId = 1) {
-  return request.get<WrongQuestion[]>('/api/wrongbook', { params: { user_id: userId, chapter_id: chapterId } })
+export function getWrongQuestions(chapterId?: number) {
+  return request.get<WrongQuestion[]>('/api/wrongbook', { params: { chapter_id: chapterId } })
 }
 
-export function getPracticeQuestions(count = 10, userId = 1) {
-  return request.get<PracticeQuestion[]>('/api/wrongbook/practice', { params: { user_id: userId, count } })
+export function getPracticeQuestions(count = 10) {
+  return request.get<PracticeQuestion[]>('/api/wrongbook/practice', { params: { count } })
 }
 
-export function submitPractice(answers: { wrongbook_id: number; user_answer: string }[], userId = 1) {
-  return request.post<PracticeResult>('/api/wrongbook/practice/submit', { answers }, { params: { user_id: userId } })
+export function submitPractice(answers: { wrongbook_id: number; user_answer: string }[]) {
+  return request.post<PracticeResult>('/api/wrongbook/practice/submit', { answers })
 }
 
-export function getWrongStats(userId = 1) {
-  return request.get<WrongStats>('/api/wrongbook/stats', { params: { user_id: userId } })
+export function getWrongStats() {
+  return request.get<WrongStats>('/api/wrongbook/stats')
 }

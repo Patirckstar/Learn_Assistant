@@ -83,7 +83,7 @@
     </div>
 
     <template v-if="isExamMode && !quizStore.result">
-      <div class="exam-header">
+      <div class="exam-header" ref="examSectionRef">
         <div class="exam-info">
           <span class="exam-title">{{ quizStore.currentPaper?.paper_title }}</span>
           <span class="exam-count">共 {{ quizStore.questions.length }} 题 · 已答 {{ answeredCount }} 题</span>
@@ -182,6 +182,19 @@
           <div class="fb-header">
             <el-icon><ChatDotRound /></el-icon>
             <span>AI 学习建议</span>
+            <button
+              v-if="voiceStore.ttsEnabled && ttsSupported"
+              class="tts-btn"
+              :disabled="ttsSpeaking"
+              @click="speakFeedback"
+              :title="ttsSpeaking ? '正在朗读...' : '朗读反馈'"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <path v-if="!ttsSpeaking" d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+              </svg>
+              <span>{{ ttsSpeaking ? '朗读中...' : '朗读' }}</span>
+            </button>
           </div>
           <div class="fb-content">{{ quizStore.result.feedback }}</div>
         </div>
@@ -274,14 +287,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onActivated, reactive } from 'vue'
+import { ref, computed, onActivated, reactive, nextTick } from 'vue'
 import { Refresh, ChatDotRound } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useQuizStore } from '@/stores/quiz'
+import { useVoiceStore } from '@/stores/voice'
+import { useTTS } from '@/composables/useTTS'
 import type { ExamHistory } from '@/api/quiz'
 
 const quizStore = useQuizStore()
+const voiceStore = useVoiceStore()
+const { speaking: ttsSpeaking, isSupported: isTTSSupported, speak: ttsSpeak } = useTTS()
 
+const ttsSupported = isTTSSupported()
+
+const examSectionRef = ref<HTMLElement | null>(null)
 const isExamMode = ref(false)
 const userAnswers = reactive<Record<number, string>>({})
 const showHistory = ref(false)
@@ -314,16 +334,24 @@ function selectAnswer(qid: number, answer: string) {
 
 async function handleRefresh() {
   refreshProgress.value = 0
-  refreshMessage.value = '正在刷新试卷...'
+  refreshMessage.value = '正在检测章节...'
   
   try {
-    await quizStore.refreshPapers((progress, message) => {
-      refreshProgress.value = progress
-      refreshMessage.value = message
-    })
-    ElMessage.success('试卷刷新完成')
+    await quizStore.refreshPapers(
+      (progress, message) => {
+        refreshProgress.value = progress
+        refreshMessage.value = message
+      },
+      (data) => {
+        if (data.generatedCount === 0) {
+          ElMessage.info(`刷新完成：${data.totalCount} 个章节已有试卷，未生成新试卷`)
+        } else {
+          ElMessage.success(`刷新完成：新生成 ${data.generatedCount} 份试卷，${data.skippedCount} 个章节已有试卷被跳过`)
+        }
+      },
+    )
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '刷新失败')
+    ElMessage.error(e?.message || '刷新失败')
   } finally {
     refreshProgress.value = -1
   }
@@ -334,6 +362,10 @@ async function handleStartExam(paperId: number) {
     await quizStore.startExam(paperId)
     isExamMode.value = true
     userAnswersClean()
+    
+    // 自动滚动到题目区域
+    await nextTick()
+    examSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     
     if (quizStore.currentPaper?.time_limit && quizStore.currentPaper.time_limit > 0) {
       remainingTime.value = quizStore.currentPaper.time_limit
@@ -431,6 +463,12 @@ function formatDate(dateStr: string) {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+async function speakFeedback() {
+  if (quizStore.result?.feedback && voiceStore.ttsEnabled) {
+    await ttsSpeak(quizStore.result.feedback)
+  }
 }
 
 onActivated(async () => {
@@ -849,6 +887,31 @@ onActivated(async () => {
   font-weight: 600;
   color: var(--color-text-heading);
   margin-bottom: 8px;
+}
+
+.tts-btn {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--color-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tts-btn:hover:not(:disabled) {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+}
+
+.tts-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .fb-content {
